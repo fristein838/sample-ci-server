@@ -1,8 +1,6 @@
 name: CI/CD Build & Deploy
 run-name: ${{ github.actor }} is building & deploying 🚀
-on:
-  push:
-    branches: [main]
+on: [push]
 
 jobs:
   build:
