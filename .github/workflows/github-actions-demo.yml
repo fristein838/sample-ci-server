@@ -28,11 +28,7 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
     
-    - name: Build and push Docker image 
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-        IMAGE_TAG: ${{ steps.version.outputs.version }}
+    - name: Build and push Docker image }
       run: |
         # buildx 설정
         docker buildx create --name mybuilder --use
