@@ -1,69 +1,104 @@
-name: CI/CD Build & Deploy
-run-name: ${{ github.actor }} is building & deploying 🚀
-on: [push]
+name: Node.js CI/CD
 
+on:
+  push:
+    branches: [ master ]
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.version.outputs.version }}
+
     steps:
-      - name: Check out repository code
-        uses: actions/checkout@v5
+    - uses: actions/checkout@v4
+    
+    - name: Generate version
+      id: version
+      run: |
+        echo "version=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    
+    - name: Build and push Docker image 
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        IMAGE_TAG: ${{ steps.version.outputs.version }}
+      run: |
+        # buildx 설정
+        docker buildx create --name mybuilder --use
+        docker buildx inspect --bootstrap
+        
+        # 멀티 플랫폼 빌드 및 푸시
+        docker buildx build \
+          docker push 340271093197.dkr.ecr.ap-northeast-2.amazonaws.com/sample-server:v2
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
+  # deploy:
+  #   needs: build-and-push
+  #   if: github.ref == 'refs/heads/master'
+  #   runs-on: ubuntu-latest
+    
+  #   steps:
+  #   - name: Configure AWS credentials
+  #     uses: aws-actions/configure-aws-credentials@v4
+  #     with:
+  #       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #       aws-region: ${{ secrets.AWS_REGION }}
+    
+  #   - name: Login to Amazon ECR
+  #     id: login-ecr
+  #     uses: aws-actions/amazon-ecr-login@v2
+    
+  #   - name: Create SSH directory
+  #     run: mkdir -p ~/.ssh
+    
+  #   - name: Add SSH key
+  #     run: |
+  #       echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+  #       chmod 600 ~/.ssh/id_rsa
+    
+  #   - name: Add EC2 host to known_hosts
+  #     env:
+  #       EC2_HOST: ${{ secrets.EC2_HOST }}
+  #     run: |
+  #       ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts
+    
+  #   - name: Deploy to EC2
+  #     env:
+  #       ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+  #       ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  #       IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+  #       EC2_HOST: ${{ secrets.EC2_HOST }}
+  #       EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+  #     run: |
+  #       # 디버깅을 위한 환경 변수 출력
+  #       echo "ECR_REGISTRY: ${ECR_REGISTRY}"
+  #       echo "ECR_REPOSITORY: ${ECR_REPOSITORY}"
+  #       echo "IMAGE_TAG: ${IMAGE_TAG}"
+  #       echo "전체 이미지 경로: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Completion message
-        run: echo "Build and tests completed successfully!"
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Check out repository code
-        uses: actions/checkout@v5
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies & Build
-        run: |
-          npm ci
-          npm run build
-
-      - name: Set up SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key.pem
-          chmod 600 ~/.ssh/ec2_key.pem
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Copy files to EC2
-        run: |
-          scp -i ~/.ssh/ec2_key.pem \
-            -r dist \
-            package.json \
-            tsconfig.json \
-            tsconfig.build.json \
-            ec2-user@${{ secrets.EC2_HOST }}:~/sample-server
-
-      - name: Deploy with PM2
-        run: |
-          ssh -i ~/.ssh/ec2_key.pem ec2-user@${{ secrets.EC2_HOST }} << 'EOF'
-            cd ~/sample-server
-            npm install --omit=dev
-            pm2 restart sample-server || pm2 start dist/main.js --name sample-server
-          EOF
-
-      - run: echo "Deployment to EC2 completed successfully!"
+  #       # AWS 자격 증명 파일 생성 및 전송
+  #       ssh -i ~/.ssh/id_rsa $EC2_USERNAME@$EC2_HOST "mkdir -p ~/.aws"
+  #       echo "[default]
+  #       aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}
+  #       aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #       region=${{ secrets.AWS_REGION }}" | ssh -i ~/.ssh/id_rsa $EC2_USERNAME@$EC2_HOST "cat > ~/.aws/credentials"
+        
+  #       # 도커 명령어 실행
+  #       ssh -i ~/.ssh/id_rsa $EC2_USERNAME@$EC2_HOST "\
+  #         source ~/.bashrc && \
+  #         aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${ECR_REGISTRY} && \
+  #         docker pull ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} && \
+  #         docker rm -f sample-server || true && \
+  #         docker run -d --name sample-server -p 3000:3000 ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} && \
+  #         docker image prune -a -f"
