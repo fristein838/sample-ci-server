@@ -3,6 +3,7 @@ name: Node.js CI/CD
 on:
   push:
     branches: [ master ]
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -28,16 +29,18 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
     
-    - name: Build and push Docker image }
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ steps.version.outputs.version }}
       run: |
-        # buildx 설정
         docker buildx create --name mybuilder --use
         docker buildx inspect --bootstrap
         
-        # 멀티 플랫폼 빌드 및 푸시
-                docker buildx build \
+        docker buildx build \
           --platform linux/amd64,linux/arm64 \
-          -t 340271093197.dkr.ecr.ap-northeast-2.amazonaws.com/sample-server:latest
+          -t $ECR_REGISTRY/sample-server:$IMAGE_TAG \
+          -t $ECR_REGISTRY/sample-server:latest \
           --push .
 
   # deploy:
